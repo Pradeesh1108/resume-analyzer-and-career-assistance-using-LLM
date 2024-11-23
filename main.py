@@ -289,6 +289,14 @@ def chat_interface():
 # Main App Layout
 st.title("Resume Analyzer & Career Assistant")
 
+# Initialize session state variables if not already set
+if "analysis_completed" not in st.session_state:
+    st.session_state.analysis_completed = False
+if "parsed_info" not in st.session_state:
+    st.session_state.parsed_info = {}
+if "ats_score" not in st.session_state:
+    st.session_state.ats_score = None
+
 # Create tabs for different sections
 tab1, tab2 = st.tabs(["Resume Analysis", "Career Assistant"])
 
@@ -304,92 +312,78 @@ with tab1:
         st.subheader("Enter Job Description")
         job_description = st.text_area("Paste the job description here", height=200)
 
-    if uploaded_file is not None and job_description:
-        progress_bar = st.progress(0)
-
-        # Add Start Analysis button
     if st.button("Start Analyzing"):
         if uploaded_file is not None and job_description:
-            progress_bar = st.progress(0)
-
             with st.spinner('Processing resume and computing ATS score...'):
                 try:
                     # Extract text and process resume
-                    progress_bar.progress(20)
                     resume_text = extract_text_from_pdf(uploaded_file)
-
-                    progress_bar.progress(40)
                     parsed_info = parse_resume(resume_text)
 
-                    # Extract skills for chatbot
-                    progress_bar.progress(60)
+                    # Store results in session state
                     st.session_state.user_skills = extract_skills_from_resume(resume_text)
                     st.session_state.job_description = job_description
+                    st.session_state.parsed_info = parsed_info
+                    st.session_state.ats_score = compute_similarity_with_window(job_description, resume_text)
+                    st.session_state.analysis_completed = True
 
-                    # Compute ATS score
-                    progress_bar.progress(80)
-                    ats_score = compute_similarity_with_window(job_description, resume_text)
-
-                    # Display results
-                    progress_bar.progress(100)
                     st.success("Analysis completed successfully!")
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.markdown(f"""
-                        <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
-                            <strong>Extracted Name</strong>
-                            <hr>
-                            <p>{parsed_info['Name']}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    # For Education Details
-                    with col2:
-                        st.markdown(f"""
-                        <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
-                            <strong>Education Details</strong>
-                            <hr>
-                            <p>{parsed_info['Degrees']}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    # For ATS Compatibility Score
-                    with col3:
-                        score_percentage = float(ats_score * 100)
-                        color = "green" if score_percentage >= 70 else "orange" if score_percentage >= 50 else "red"
-                        st.markdown(f"""
-                        <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
-                            <strong>ATS Compatibility Score</strong>
-                            <hr>
-                            <div style='font-size: 24px; color: {color};'>
-                                {score_percentage:.1f}%
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    # Score interpretation
-                    st.subheader("Score Interpretation")
-                    if score_percentage >= 70:
-                        st.success("Your resume is well-matched with the job description! ✨")
-                    elif score_percentage >= 50:
-                        st.warning("Your resume could use some improvements to better match the job description.")
-                    else:
-                        st.error("Your resume needs significant modifications to match the job requirements.")
-
-                    # Extracted Skills
-                    st.subheader("Extracted Skills")
-                    st.write(st.session_state.user_skills)
 
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
 
+    # Display results if analysis is already completed
+    if st.session_state.analysis_completed:
+        st.subheader("Analysis Results")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown(f"""
+            <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
+                <strong>Extracted Name</strong>
+                <hr>
+                <p>{st.session_state.parsed_info.get('Name', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col2:
+            st.markdown(f"""
+            <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
+                <strong>Education Details</strong>
+                <hr>
+                <p>{st.session_state.parsed_info.get('Degrees', 'N/A')}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col3:
+            score_percentage = float(st.session_state.ats_score * 100)
+            color = "green" if score_percentage >= 70 else "orange" if score_percentage >= 50 else "red"
+            st.markdown(f"""
+            <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
+                <strong>ATS Compatibility Score</strong>
+                <hr>
+                <div style='font-size: 24px; color: {color};'>
+                    {score_percentage:.1f}%
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.subheader("Score Interpretation")
+        if score_percentage >= 70:
+            st.success("Your resume is well-matched with the job description! ✨")
+        elif score_percentage >= 50:
+            st.warning("Your resume could use some improvements to better match the job description.")
+        else:
+            st.error("Your resume needs significant modifications to match the job requirements.")
+
+        st.subheader("Extracted Skills")
+        st.write(st.session_state.user_skills)
     else:
-        st.info("Please upload a PDF resume and enter a job description to begin analysis")
+        st.info("Please upload a PDF resume and enter a job description to begin analysis.")
 
 with tab2:
-    if st.session_state.user_skills and st.session_state.job_description:
+    if st.session_state.analysis_completed:
         chat_interface()
     else:
         st.info("Please complete the resume analysis first to enable the career assistant.")
