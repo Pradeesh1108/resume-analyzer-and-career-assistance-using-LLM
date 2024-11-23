@@ -38,9 +38,7 @@ tokenizer, model = load_bert_model()
 
 # PDF Text Extraction Functions
 def extract_text_from_pdf_upload(uploaded_file):
-    """
-    Extract text from an uploaded PDF file using pdfplumber
-    """
+
     text = ""
     try:
         # Create a temporary file to store the uploaded PDF
@@ -64,9 +62,7 @@ def extract_text_from_pdf_upload(uploaded_file):
 
 
 def extract_text_from_pdf_ocr(uploaded_file):
-    """
-    Extract text from an uploaded PDF file using PDF2Image and PyTesseract
-    """
+
     text = ""
     try:
         # Create a temporary file
@@ -94,9 +90,6 @@ def extract_text_from_pdf_ocr(uploaded_file):
 
 
 def extract_text_from_pdf(uploaded_file):
-    """
-    Try both text extraction methods and return the best result
-    """
     # Try pdfplumber first
     text = extract_text_from_pdf_upload(uploaded_file)
 
@@ -241,22 +234,30 @@ def chat_interface():
         })
         st.session_state.conversation_started = True
 
-    # Display chat history (show both user and assistant messages)
-    for message in st.session_state.chat_history:
-        if message['role'] == 'user':
-            st.write(f"You: {message['content']}")
-        else:
-            st.write(f"Assistant: {message['content']}")
+    # Create a container for the chat to update dynamically
+    chat_container = st.container()
+
+    # Display chat history dynamically
+    with chat_container:
+        for message in st.session_state.chat_history:
+            if message['role'] == 'user':
+                st.write(f"You: {message['content']}")
+            else:
+                st.write(f"Assistant: {message['content']}")
 
     # Chat input (user's query)
     user_input = st.chat_input("Type your message here...")
 
     if user_input:
-        # Immediately add user's message to the chat history
+        # Immediately add the user's message to the chat history
         st.session_state.chat_history.append({
             'role': 'user',
             'content': user_input
         })
+
+        # Display the updated user input immediately
+        with chat_container:
+            st.write(f"You: {user_input}")
 
         # Prepare conversation history for Llama
         llama_messages = [
@@ -269,21 +270,24 @@ def chat_interface():
         ]
         llama_messages.extend(st.session_state.chat_history)
 
-        # Get assistant response
-        response = ollama.chat(model="llama3.2:latest", messages=llama_messages)
+        # Generate assistant response dynamically
+        with st.spinner("Assistant is typing..."):  # Add spinner for better UX
+            response = ollama.chat(model="llama3.2:latest", messages=llama_messages)
+            assistant_response = response['message']['content'].strip()
 
-        # Add assistant response to history
+        # Add the assistant's response to the chat history
         st.session_state.chat_history.append({
             'role': 'assistant',
-            'content': response['message']['content'].strip()
+            'content': assistant_response
         })
 
-        # Rerun to update chat display
-        st.rerun()
+        # Display the assistant's response dynamically
+        with chat_container:
+            st.write(f"Assistant: {assistant_response}")
 
 
 # Main App Layout
-st.title("Resume ATS Analyzer & Career Assistant")
+st.title("Resume Analyzer & Career Assistant")
 
 # Create tabs for different sections
 tab1, tab2 = st.tabs(["Resume Analysis", "Career Assistant"])
