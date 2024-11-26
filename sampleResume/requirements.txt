@@ -1,0 +1,10 @@
+streamlit
+ollama
+cv2
+pytesseract
+pdf2image
+numpy
+tempfile
+transformers
+pdfplumber
+torch
