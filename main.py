@@ -1,3 +1,4 @@
+import spacy
 import streamlit as st
 import ollama
 import cv2
@@ -6,9 +7,16 @@ from pdf2image import convert_from_path
 import numpy as np
 import tempfile
 import os
+from sentence_transformers.util import pytorch_cos_sim
 from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
 import pdfplumber
-import torch
+from keybert import KeyBERT
+from sentence_transformers import SentenceTransformer
+
+
+nlp = spacy.load("en_core_web_sm")
+keybert_model = KeyBERT()
+sbert_model = SentenceTransformer('all-MiniLM-L6-v2')  # SBERT for similarity matching
 
 # Initialize session state for chat history if it doesn't exist
 if 'chat_history' not in st.session_state:
@@ -22,19 +30,6 @@ if 'conversation_started' not in st.session_state:
 
 # Page config
 st.set_page_config(page_title="Resume Analyzer & Career Assistant", layout="wide")
-
-
-# Initialize BERT model and tokenizer
-@st.cache_resource
-def load_bert_model():
-    model_name = "bert-base-uncased"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
-    return tokenizer, model
-
-
-tokenizer, model = load_bert_model()
-
 
 # PDF Text Extraction Functions
 def extract_text_from_pdf_upload(uploaded_file):
@@ -99,48 +94,48 @@ def extract_text_from_pdf(uploaded_file):
 
     return text.strip()
 
-
 # ATS Scoring Functions
-def sliding_window_chunk(text, max_length=512, stride=256):
-    tokens = tokenizer.encode(text, truncation=False)
-    chunks = []
-    for i in range(0, len(tokens), stride):
-        chunk = tokens[i:i + max_length]
-        if len(chunk) > 10:  # Only keep chunks with meaningful content
-            chunks.append(chunk)
-        if i + max_length >= len(tokens):
-            break
-    return chunks
+
+def preprocess_text(text):
+
+    doc = nlp(text.lower())
+    tokens = [token.lemma_ for token in doc if not token.is_stop and not token.is_punct]
+    return " ".join(tokens)
+
+# Step 2: Skill and Keyword Extraction Function
+def extract_keywords(text):
+
+    keywords = keybert_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=100)
+    return [kw[0] for kw in keywords]
 
 
-def compute_similarity_with_window(job_description, resume_text):
-    job_description_chunks = sliding_window_chunk(job_description)
-    resume_text_chunks = sliding_window_chunk(resume_text)
+# Step 3: Semantic Similarity Function
+def calculate_similarity(resume_text, job_description):
+    # Generate embeddings
+    embeddings = sbert_model.encode([resume_text, job_description], convert_to_tensor=True)
+    similarity_score = pytorch_cos_sim(embeddings[0], embeddings[1])
+    return similarity_score.item()
 
-    if not job_description_chunks or not resume_text_chunks:
-        return 0
 
-    total_similarity = 0
-    count = 0
+# Step 4: Scoring Function
+def calculate_ats_score(resume_text, job_description):
+    # Preprocess texts
+    clean_resume = preprocess_text(resume_text)
+    clean_job_description = preprocess_text(job_description)
 
-    for job_chunk in job_description_chunks:
-        for resume_chunk in resume_text_chunks:
-            inputs = tokenizer(
-                tokenizer.decode(job_chunk),
-                tokenizer.decode(resume_chunk),
-                return_tensors='pt',
-                truncation=True,
-                max_length=512,
-                padding=True
-            )
-            with torch.no_grad():
-                outputs = model(**inputs)
-            scores = outputs.logits.numpy()
-            probabilities = np.exp(scores) / np.sum(np.exp(scores))
-            total_similarity += probabilities[0][1]
-            count += 1
+    # Extract skills/keywords
+    resume_keywords = extract_keywords(clean_resume)
+    job_keywords = extract_keywords(clean_job_description)
 
-    return total_similarity / count if count > 0 else 0
+    # Calculate skill similarity
+    skill_similarity = calculate_similarity(" ".join(resume_keywords), " ".join(job_keywords))
+
+    # Calculate overall similarity
+    overall_similarity = calculate_similarity(clean_resume, clean_job_description)
+
+    # Weighted scoring
+    ats_score = (0.5 * skill_similarity) + (0.3 * overall_similarity) + (0.2 * overall_similarity)
+    return round(ats_score * 100, 2)
 
 
 # Resume Parsing Functions
@@ -316,15 +311,13 @@ with tab1:
         if uploaded_file is not None and job_description:
             with st.spinner('Processing resume and computing ATS score...'):
                 try:
-                    # Extract text and process resume
                     resume_text = extract_text_from_pdf(uploaded_file)
                     parsed_info = parse_resume(resume_text)
 
-                    # Store results in session state
                     st.session_state.user_skills = extract_skills_from_resume(resume_text)
                     st.session_state.job_description = job_description
                     st.session_state.parsed_info = parsed_info
-                    st.session_state.ats_score = compute_similarity_with_window(job_description, resume_text)
+                    st.session_state.ats_score = calculate_ats_score(resume_text, job_description)
                     st.session_state.analysis_completed = True
 
                     st.success("Analysis completed successfully!")
@@ -332,7 +325,6 @@ with tab1:
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
 
-    # Display results if analysis is already completed
     if st.session_state.analysis_completed:
         st.subheader("Analysis Results")
 
@@ -357,7 +349,7 @@ with tab1:
             """, unsafe_allow_html=True)
 
         with col3:
-            score_percentage = float(st.session_state.ats_score * 100)
+            score_percentage = float(st.session_state.ats_score)
             color = "green" if score_percentage >= 70 else "orange" if score_percentage >= 50 else "red"
             st.markdown(f"""
             <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; background-color: #000000; text-align: center;">
@@ -389,3 +381,8 @@ with tab2:
         st.info("Please complete the resume analysis first to enable the career assistant.")
 
 st.markdown("---")
+st.write("Team Members:")
+st.write("Pradeesh S")
+st.write("Rubashree N")
+st.write("Sridevi V G")
+st.write("Shreeabiraami M")
