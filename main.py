@@ -8,7 +8,6 @@ import numpy as np
 import tempfile
 import os
 from sentence_transformers.util import pytorch_cos_sim
-from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
 import pdfplumber
 from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
